@@ -1,9 +1,11 @@
 import express from "express";
-import { env } from "./config/env.ts";
+import { env } from "./config/env";
+import { errorMiddleware } from "./middleware/err.middleware";
 const app = express();
+app.use(errorMiddleware);
 app.get("/", (req, res) => {
   res.send("HELLO from home");
 });
-app.listen(5000, () => {
-  console.log(`Server is listenign on port 50000`);
+app.listen(env.PORT, () => {
+  console.log(`Server is listenign on  ${env.PORT}`);
 });
