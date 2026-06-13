@@ -6,7 +6,16 @@ export const fetchRepoFiles = async (
 ): Promise<Array<{ path: string; content: string; extension: string }>> => {
   //extract owner and repo name from the repoUrl
   const url = new URL(repoUrl);
+
+  if (url.hostname !== "github.com") {
+    throw new ApiError(400, "Invalid GitHub repository URL");
+  }
+
   const [owner, repo] = url.pathname.split("/").filter(Boolean);
+
+  if (!owner || !repo) {
+    throw new ApiError(400, "Invalid GitHub repository URL");
+  }
   try {
     //get array of files from git tree
     const treeResponse = await fetch(
