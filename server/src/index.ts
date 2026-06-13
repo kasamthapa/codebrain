@@ -3,7 +3,6 @@ import { env } from "./config/env";
 import { errorMiddleware } from "./middleware/err.middleware";
 import { fetchRepoFiles } from "./services/github.service";
 const app = express();
-fetchRepoFiles("https://github.com/kasamthapa/critch");
 app.use(errorMiddleware);
 app.get("/", (req, res) => {
   res.send("HELLO from home");
