@@ -1,11 +1,7 @@
 import express from "express";
 import { env } from "./config/env";
 import { errorMiddleware } from "./middleware/err.middleware";
-import { fetchRepoFiles } from "./services/github.service";
-import { chunkCode } from "./services/chunking.service";
 const app = express();
-fetchRepoFiles(`https://github.com/kasamthapa/critch/tree/main`);
-
 app.use(errorMiddleware);
 app.get("/", (req, res) => {
   res.send("HELLO from home");
