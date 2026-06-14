@@ -1,7 +1,6 @@
 import express from "express";
 import { env } from "./config/env";
 import { errorMiddleware } from "./middleware/err.middleware";
-import { fetchRepoFiles } from "./services/github.service";
 const app = express();
 app.use(errorMiddleware);
 app.get("/", (req, res) => {

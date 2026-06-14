@@ -1,5 +1,6 @@
 import { env } from "../config/env";
 import { ApiError } from "../utils/ApiError";
+import { chunkCode } from "./chunking.service";
 
 export const fetchRepoFiles = async (
   repoUrl: string,
@@ -94,8 +95,19 @@ export const fetchRepoFiles = async (
         }),
       );
     }
+    chunkCode(
+      resultArray[14].content,
+      resultArray[14].path,
+      resultArray[14].extension,
+    );
+    // console.log(resultArray);
+    // resultArray.map((file) =>
+    //   chunkCode(file.content, file.path, file.extension),
+    // );
+    // console.log(arr);
     return resultArray;
   } catch (e: any) {
+    console.log(e);
     if (e instanceof ApiError) {
       throw e;
     }
