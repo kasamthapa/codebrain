@@ -100,11 +100,6 @@ export const fetchRepoFiles = async (
       resultArray[14].path,
       resultArray[14].extension,
     );
-    // console.log(resultArray);
-    // resultArray.map((file) =>
-    //   chunkCode(file.content, file.path, file.extension),
-    // );
-    // console.log(arr);
     return resultArray;
   } catch (e: any) {
     console.log(e);
