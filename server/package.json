@@ -16,12 +16,14 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@google/genai": "^2.8.0",
     "@types/express": "^5.0.6",
     "@types/node": "^25.9.3",
     "@typescript-eslint/types": "^8.61.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "openai": "^6.43.0",
     "ts-node": "^10.9.2"
   },
   "devDependencies": {
