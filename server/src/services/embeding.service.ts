@@ -26,7 +26,7 @@ export const embedChunk = async (
         }
       }),
     );
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await new Promise((resolve) => setTimeout(resolve, 7000));
   }
   return results;
 };

@@ -9,8 +9,8 @@ export const Storage = async (data: EmbeddedChunk[], repoUrl: string) => {
   if (isRepoPresent.rows.length > 0) {
     return await db.query(`SELECT * FROM chunk WHERE "repoUrl"=$1`, [repoUrl]);
   }
-  const placeholders = [];
-  const values = [];
+  const placeholders: string[] = [];
+  const values: (string | number)[] = [];
   data.forEach((chunk, index) => {
     const offset = index * 8;
     placeholders.push(
