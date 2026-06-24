@@ -1,9 +1,7 @@
 import express from "express";
 import { env } from "./config/env";
 import { errorMiddleware } from "./middleware/err.middleware";
-import { fetchRepoFiles } from "./services/github.service";
 const app = express();
-const files = fetchRepoFiles("https://github.com/kasamthapa/codebrain");
 app.use(errorMiddleware);
 app.get("/", (req, res) => {
   res.send("HELLO from home");
@@ -11,3 +9,12 @@ app.get("/", (req, res) => {
 app.listen(env.PORT, () => {
   console.log(`Server is listenign on  ${env.PORT}`);
 });
+import db from "./lib/db";
+
+db.query("SELECT 1")
+  .then(() => {
+    console.log("Database connected");
+  })
+  .catch((err) => {
+    console.error("Database connection failed:", err);
+  });
