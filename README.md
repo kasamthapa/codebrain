@@ -119,5 +119,5 @@ This project is being built entirely in the open. Every week of progress gets do
 ---
 
 <div align="center">
-  <p>Built by <a href="https://github.com/kasamthapa">Aabishkar Thapa</a></p>
+  <p>Built by <a href="https://github.com/kasamthapa">Kasam Thapa Magar</a></p>
 </div>
