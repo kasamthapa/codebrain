@@ -6,3 +6,9 @@ export interface Chunk {
   type: "function" | "class" | "import" | "type" | "other";
   extension: string;
 }
+export interface retrievalReturnType {
+  content: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+}
