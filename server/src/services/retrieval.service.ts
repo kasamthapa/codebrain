@@ -24,6 +24,7 @@ export const retrieveChunks = async (
 
     return chunks.rows;
   } catch (e) {
-    console.warn(`Failed to retireive data`, e);
+    console.warn(`Failed to retrieve data`, e);
+    return [];
   }
 };
