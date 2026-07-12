@@ -20,17 +20,19 @@ export const askQuestion = async (
     throw new Error("No response body");
   }
   const decoder = new TextDecoder();
+  let buffer = "";
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
+    buffer += decoder.decode(value, { stream: true });
 
-    const val = decoder.decode(value);
+    const events = buffer.split("\n\n");
+    buffer = events.pop() ?? "";
 
-    const lines = val.split("\n\n");
-    for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        const cleanedLine = line.slice(6);
-        onChunk(cleanedLine);
+    for (const event of events) {
+      if (event.startsWith("data: ")) {
+        const cleanedEvent = event.slice(6);
+        onChunk(cleanedEvent);
       }
     }
   }
