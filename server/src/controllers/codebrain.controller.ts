@@ -21,6 +21,7 @@ export const indexController = async (req: Request, res: Response) => {
   res.json(new ApiResponse(200, "Repo indexed successfully", {}));
 };
 export const userQueryController = async (req: Request, res: Response) => {
+  console.log(req.body.repoUrl);
   const { repoUrl, question } = req.body;
   if (!repoUrl || !question)
     throw new ApiError(401, "repoUrl or question is missing");
@@ -33,5 +34,6 @@ export const userQueryController = async (req: Request, res: Response) => {
     res.end();
     return;
   }
+
   await llmService(question, similarChunks, res);
 };

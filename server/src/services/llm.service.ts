@@ -11,9 +11,27 @@ export const llmService = async (
   chunks: retrievalReturnType[],
   res: Response,
 ) => {
+  console.log(
+    chunks.map((c) => ({
+      file: c.filePath,
+      lines: `${c.startLine}-${c.endLine}`,
+    })),
+  );
   try {
     const prompt = `
-  You are a code assistant. Answer the user's question based only on the provided code chunks. Include file references in your answer.\n
+You are a senior software engineer helping another developer understand a codebase.
+
+You must answer ONLY from the provided code context.
+
+If the answer cannot be determined from the provided code, explicitly say:
+"I couldn't find enough information in the retrieved code."
+
+When answering:
+- Explain the flow step by step.
+- Mention the file names involved.
+- Mention line numbers whenever possible.
+- Do not invent code or behavior.
+- If multiple files work together, explain how they connect.\n
 
 ###Context:\n
 ${chunks
@@ -33,7 +51,7 @@ ${question}`;
       contents: prompt,
     });
     for await (const token of response) {
-      res.write(`data: ${token.text}\n\n`);
+      res.write(`data: ${JSON.stringify(token.text)}\n\n`);
     }
     res.end();
   } catch (e) {

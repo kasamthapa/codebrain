@@ -31,11 +31,14 @@ export const fetchRepoFiles = async (
         },
       },
     );
-    if (treeResponse.ok === false) {
-      throw new ApiError(
-        treeResponse.status,
-        "Repository not found or inaccessible",
-      );
+    if (!treeResponse.ok) {
+      const errorBody = await treeResponse.text();
+
+      console.error("GitHub Tree API Error");
+      console.error("Status:", treeResponse.status);
+      console.error("Response:", errorBody);
+
+      throw new ApiError(treeResponse.status, `GitHub API Error: ${errorBody}`);
     }
     const treeData = await treeResponse.json();
     if (treeData.truncated === true) {
@@ -99,7 +102,7 @@ export const fetchRepoFiles = async (
     const chunks = resultArray.flatMap((file) =>
       chunkCode(file.content, file.path, file.extension),
     );
-    embedChunk(chunks);
+    await embedChunk(chunks);
     return resultArray;
   } catch (e: any) {
     console.log(e);

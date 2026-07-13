@@ -32,7 +32,9 @@ export const askQuestion = async (
     for (const event of events) {
       if (event.startsWith("data: ")) {
         const cleanedEvent = event.slice(6);
-        onChunk(cleanedEvent);
+        console.log(cleanedEvent);
+        const parsed = JSON.parse(cleanedEvent);
+        onChunk(parsed);
       }
     }
   }
