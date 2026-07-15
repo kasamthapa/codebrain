@@ -1,3 +1,12 @@
+process.on("uncaughtException", (err) => {
+  console.error("CRITICAL UNCAUGHT EXCEPTION:", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("CRITICAL UNHANDLED REJECTION AT:", promise, "REASON:", reason);
+});
+
 import express from "express";
 import cors from "cors";
 import { errorMiddleware } from "./middleware/err.middleware";
