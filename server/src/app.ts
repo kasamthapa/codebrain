@@ -11,10 +11,11 @@ import express from "express";
 import cors from "cors";
 import { errorMiddleware } from "./middleware/err.middleware";
 import codeBrainRoutes from "./routes/codebrain.route";
+import { env } from "./config/env";
 const app = express();
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: env.CORS_ORIGIN,
   }),
 );
 app.use(express.json());
