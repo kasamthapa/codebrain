@@ -29,6 +29,7 @@
     "voyageai": "^0.4.0"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
     "@types/pg": "^8.20.0",
     "@typescript-eslint/eslint-plugin": "^8.61.0",
     "@typescript-eslint/parser": "^8.61.0",
