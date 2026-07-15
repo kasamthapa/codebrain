@@ -10,7 +10,12 @@ const required = [
   "CORS_ORIGIN",
 ];
 for (const key of required) {
-  if (!process.env[key]) throw new Error(`${key} is required`);
+  if (!process.env[key]) {
+    console.error(`\n====================================`);
+    console.error(`DEPLOYMENT CRASH: Missing variable [ ${key} ]`);
+    console.error(`====================================\n`);
+    throw new Error(`${key} is required`);
+  }
 }
 export const env = {
   PORT: process.env["PORT"] as string,
