@@ -78,10 +78,10 @@ Splits code into meaningful units — not arbitrary line breaks.
 
 Converts each code chunk into a vector representation.
 
-- `nomic-embed-text` via Ollama (local, no rate limits, no cost during development)
-- 768-dimensional vectors — matches the planned production model, so no schema migration needed later
+- `gemini-embedding-001` via Google AI SDK
+- 768-dimensional vectors using Matryoshka Representation Learning
 - Batched with `Promise.all`, failed chunks logged and skipped
-- Chunks exceeding the model's ~8000-character context window are skipped (~4% of chunks)
+- Chunks exceeding the model's context window are skipped and logged
 
 ### Vector Storage
 
@@ -132,16 +132,16 @@ React frontend for the full flow, live at [codebrain-gamma.vercel.app](https://c
 
 ## Tech Stack
 
-| Layer      | Technology                                                          |
-| ---------- | ------------------------------------------------------------------- |
-| Backend    | Node.js, Express, TypeScript                                        |
-| Frontend   | React, Vite, TypeScript                                             |
-| Parsing    | `@typescript-eslint/parser`                                         |
-| Embeddings | `nomic-embed-text` via Ollama (dev) → `gemini-embedding-001` (prod) |
-| Vector DB  | Supabase pgvector (HNSW index, cosine similarity)                   |
-| LLM        | Google Gemini `gemini-2.5-flash`                                    |
-| Streaming  | Server-Sent Events (SSE)                                            |
-| DB access  | Raw `pg` client for vector ops (Prisma doesn't support pgvector)    |
+| Layer      | Technology                                                       |
+| ---------- | ---------------------------------------------------------------- |
+| Backend    | Node.js, Express, TypeScript                                     |
+| Frontend   | React, Vite, TypeScript                                          |
+| Parsing    | `@typescript-eslint/parser`                                      |
+| Embeddings | `gemini-embedding-001` via Google AI SDK                         |
+| Vector DB  | Supabase pgvector (HNSW index, cosine similarity)                |
+| LLM        | Google Gemini `gemini-2.5-flash`                                 |
+| Streaming  | Server-Sent Events (SSE)                                         |
+| DB access  | Raw `pg` client for vector ops (Prisma doesn't support pgvector) |
 
 Full reasoning and tradeoffs for each decision are documented in the project's Architecture Decision Records (ADR-001 through ADR-004).
 
@@ -165,7 +165,15 @@ cd client && npm install
 npm run dev
 ```
 
-Requires a local [Ollama](https://ollama.com) instance with `nomic-embed-text` pulled for development embeddings.
+You'll need the following environment variables (see `.env.example`):
+
+| Variable         | Description                                       |
+| ---------------- | ------------------------------------------------- |
+| `PORT`           | Server port                                       |
+| `GEMINI_API_KEY` | Google AI Studio API key (embeddings + LLM)       |
+| `DATABASE_URL`   | Supabase Postgres connection string (pgvector)    |
+| `GITHUB_TOKEN`   | GitHub personal access token (for repo ingestion) |
+| `CORS_ORIGIN`    | Allowed origin for the frontend (CORS)            |
 
 ---
 
