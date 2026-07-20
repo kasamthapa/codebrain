@@ -1,7 +1,5 @@
 import { env } from "../config/env";
 import { ApiError } from "../utils/ApiError";
-import { chunkCode } from "./chunking.service";
-import { embedChunk } from "./embeding.service";
 
 export const fetchRepoFiles = async (
   repoUrl: string,
@@ -99,10 +97,6 @@ export const fetchRepoFiles = async (
         }),
       );
     }
-    const chunks = resultArray.flatMap((file) =>
-      chunkCode(file.content, file.path, file.extension),
-    );
-    await embedChunk(chunks);
     return resultArray;
   } catch (e: any) {
     console.log(e);
