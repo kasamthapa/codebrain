@@ -1,7 +1,6 @@
 import { vi, describe, test, expect } from "vitest";
 import { Chunk } from "../types/chunk.type";
 import { embedChunk } from "../services/embeding.service";
-import { assert } from "node:console";
 
 const mockEmbedContent = vi.hoisted(() =>
   vi.fn().mockResolvedValue({
