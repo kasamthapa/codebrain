@@ -61,4 +61,35 @@ describe("githubService", () => {
     await expect(badCall()).rejects.toThrow();
     expect(mockFetch).not.toHaveBeenCalled();
   });
+
+  test("throws error with status and errorBody from GithuB API if response status is not ok", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      text: vi.fn().mockResolvedValue("Error in api call"),
+      status: 500,
+    });
+    const Call = async () =>
+      await fetchRepoFiles("https://github.com/kasamthapa/codebrain");
+    await expect(Call()).rejects.toThrow();
+  });
+
+  test("throws error if the data fetched is truncated", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        tree: [
+          {
+            path: "src/index.ts",
+            type: "blob",
+            sha: "abc",
+          },
+        ],
+        truncated: true,
+      }),
+    });
+    const Call = async () =>
+      await fetchRepoFiles("https://github.com/kasamthapa/codebrain");
+    await expect(Call()).rejects.toThrow();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
 });
