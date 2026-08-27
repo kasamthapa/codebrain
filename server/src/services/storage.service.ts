@@ -31,6 +31,4 @@ export const Storage = async (data: EmbeddedChunk[], repoUrl: string) => {
     `INSERT INTO chunk("repoUrl", "content","type","filePath", "startLine","endLine","extension", "embedding")VALUES ${placeholders.join(",")}`,
     values,
   );
-  const result = await db.query(`SELECT * FROM chunk`);
-  return result;
 };
