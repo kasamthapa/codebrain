@@ -7,7 +7,7 @@ export const Storage = async (data: EmbeddedChunk[], repoUrl: string) => {
     [repoUrl],
   );
   if (isRepoPresent.rows.length > 0) {
-    return await db.query(`SELECT * FROM chunk WHERE "repoUrl"=$1`, [repoUrl]);
+    return;
   }
   const placeholders: string[] = [];
   const values: (string | number)[] = [];
