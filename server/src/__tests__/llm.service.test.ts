@@ -43,4 +43,31 @@ describe("llm service", () => {
     expect(mockRes.write).toHaveBeenCalledWith(`data: " World"\n\n`);
     expect(mockRes.end).toHaveBeenCalledTimes(1);
   });
+  test("writes error message on response object if api throws", async () => {
+    mockGenerateContentStream.mockImplementationOnce(async function* () {
+      throw new Error("API failed");
+    });
+    const mockRes = {
+      write: vi.fn(),
+      end: vi.fn(),
+    };
+    const retrievedChunks = [
+      {
+        content: "function hello() {}",
+        filePath: "src/index.ts",
+        startLine: 1,
+        endLine: 3,
+      },
+    ];
+    const result = await llmService(
+      "How does auth work?",
+      retrievedChunks,
+      mockRes as any,
+    );
+    expect(result).toBeUndefined();
+    expect(mockRes.write).toHaveBeenCalledWith(
+      "data: Error generating answer\n\n",
+    );
+    expect(mockRes.end).toHaveBeenCalledTimes(1);
+  });
 });
