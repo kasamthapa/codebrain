@@ -1,6 +1,7 @@
-<img src="./logo.png" alt="CodeBrain" width="120" />
-
-# CodeBrain
+<div align="center">
+  <img src="./logo.png" alt="CodeBrain" width="120" />
+  <h1>CodeBrain</h1>
+</div>
 
 CodeBrain answers natural-language questions about a public GitHub repository. It fetches the repository's files, splits them into chunks along AST boundaries, embeds each chunk, and stores the vectors in PostgreSQL. A question is embedded with the same model, matched against those vectors, and the closest chunks are passed to an LLM that answers from that context and cites the files and line ranges it used. Answers stream to the browser over Server-Sent Events.
 
@@ -10,6 +11,17 @@ Layout:
 
 - `server/` — Express API, indexing and query pipelines, Vitest tests
 - `client/` — React chat UI
+
+## Contents
+
+- [Architecture](#architecture)
+- [Evaluation](#evaluation)
+- [Tech stack](#tech-stack)
+- [Local setup](#local-setup)
+- [Environment variables](#environment-variables)
+- [Limitations](#limitations)
+
+---
 
 ## Architecture
 
@@ -33,6 +45,8 @@ Body: `{ "repoUrl": "...", "question": "..." }`
 3. **Render** (`client/src/api/askQuestion.api.ts`) — the client reads the stream with `fetch` and a `ReadableStream` reader, splitting on `\n\n`. `EventSource` is not used, because the request needs a POST body. Output is rendered as Markdown.
 
 Every route is wrapped in `asyncHandler`, which forwards rejected promises to `errorMiddleware`. That middleware maps `ApiError` to its own status code and anything else to a generic 500. All responses use the `ApiResponse` envelope: `{ statusCode, message, data, success }`.
+
+---
 
 ## Evaluation
 
@@ -184,6 +198,8 @@ question distinguishes them.
 The same 14 questions will be re-run after these changes, scored by the identical
 counting method, with both sets of numbers published here.
 
+---
+
 ## Tech stack
 
 | Layer        | Technology                                        |
@@ -197,6 +213,8 @@ counting method, with both sets of numbers published here.
 | DB access    | `pg`, raw SQL, no ORM                             |
 | Streaming    | Server-Sent Events                                |
 | Tests        | Vitest                                            |
+
+---
 
 ## Local setup
 
@@ -250,6 +268,8 @@ curl -X POST http://localhost:8080/api/v1/codebrain/index -H "Content-Type: appl
 
 Other scripts: `npm test` (Vitest), `npm run build` (`tsc -b`), `npm run lint`, `npm run format`.
 
+---
+
 ## Environment variables
 
 Server, in `server/.env`:
@@ -269,6 +289,8 @@ Client, in `client/.env`:
 | ------------------- | -------- | ----------------------------------------------------------------------------------- |
 | `VITE_API_BASE_URL` | yes      | API base, including the route prefix, e.g. `http://localhost:8080/api/v1/codebrain` |
 
+---
+
 ## Limitations
 
 - Only `.ts`, `.tsx`, `.js` and `.jsx` files produce chunks. Other languages are fetched and then discarded at the chunking step.
@@ -277,5 +299,7 @@ Client, in `client/.env`:
 - Retrieval always returns 5 chunks and filters only by repository URL, so every file in the repository competes in the same pool.
 - There is no conversation memory. Each question is answered independently.
 - The Evaluation section measures what this costs in practice.
+
+---
 
 Built by [Kasam Thapa Magar](https://github.com/kasamthapa)
