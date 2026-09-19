@@ -11,12 +11,15 @@ export const llmService = async (
   chunks: retrievalReturnType[],
   res: Response,
 ) => {
-  console.log(
-    chunks.map((c) => ({
-      file: c.filePath,
-      lines: `${c.startLine}-${c.endLine}`,
-    })),
-  );
+  if (env.EVAL_LOG === "true") {
+    console.log(
+      chunks.map((c) => ({
+        filePath: c.filePath,
+        startLine: c.startLine,
+        endLine: c.endLine,
+      })),
+    );
+  }
   try {
     const prompt = `
 You are a senior software engineer helping another developer understand a codebase.

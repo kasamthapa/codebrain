@@ -19,4 +19,6 @@ export const env = {
   DATABASE_URL: process.env["DATABASE_URL"] as string,
   GITHUB_TOKEN: process.env["GITHUB_TOKEN"] as string,
   CORS_ORIGIN: process.env["CORS_ORIGIN"] as string,
+  //optional: logs retrieved chunk locations for evaluation runs
+  EVAL_LOG: process.env["EVAL_LOG"],
 };
