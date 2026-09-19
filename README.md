@@ -1,188 +1,281 @@
-<div align="center">
-  <img src="./logo.png" alt="CodeBrain Logo" width="200" />
+<img src="./logo.png" alt="CodeBrain" width="120" />
 
-  <h1>CodeBrain</h1>
-  <p><strong>Understand any codebase with AI.</strong></p>
+# CodeBrain
 
-  <p>
-    Point CodeBrain at any public GitHub repository and ask it anything about the code —
-    how a feature works, where logic lives, what a function does, how pieces connect.
-    No more getting lost in unfamiliar codebases.
-  </p>
+CodeBrain answers natural-language questions about a public GitHub repository. It fetches the repository's files, splits them into chunks along AST boundaries, embeds each chunk, and stores the vectors in PostgreSQL. A question is embedded with the same model, matched against those vectors, and the closest chunks are passed to an LLM that answers from that context and cites the files and line ranges it used. Answers stream to the browser over Server-Sent Events.
 
-  <img src="https://img.shields.io/badge/status-live-brightgreen" />
-  <img src="https://img.shields.io/badge/stack-TypeScript%20%7C%20Node.js%20%7C%20React-blue" />
-  <img src="https://img.shields.io/badge/building-in%20public-purple" />
+Live instance: https://codebrain-gamma.vercel.app
 
-  <p>
-    <a href="https://codebrain-gamma.vercel.app"><strong>Live Demo →</strong></a>
-  </p>
-</div>
+Layout:
 
----
+- `server/` — Express API, indexing and query pipelines, Vitest tests
+- `client/` — React chat UI
 
-## What is CodeBrain?
+## Architecture
 
-Most developers have been there — dropped into a large codebase with no idea where to start. You read file after file, follow imports, trace function calls, and still feel lost after an hour.
+Two pipelines, one per endpoint.
 
-CodeBrain fixes that. Give it a GitHub repo URL and ask your questions in plain language. It understands the code semantically — not just as text, but as structured logic — retrieves the most relevant chunks, and generates a grounded answer with file citations, streamed in real time.
+### Indexing — `POST /api/v1/codebrain/index`
 
----
+Body: `{ "repoUrl": "https://github.com/owner/repo" }`
 
-## How It Works
+1. **Fetch** (`github.service.ts`) — one recursive call to the GitHub Git Trees API for `HEAD`, rejected with 422 if GitHub reports the tree as truncated. Paths are filtered by `shouldIncludeFile`, which drops `node_modules/`, `dist/`, `build/`, `.git/`, `.next/`, `coverage/`, `.cache/`, `vendor/`, lock files, and binary/media extensions. Remaining blobs are fetched 10 at a time and base64-decoded.
+2. **Chunk** (`chunking.service.ts`) — each file is parsed with `@typescript-eslint/parser` and split at top-level AST boundaries. Only `.ts`, `.tsx`, `.js` and `.jsx` produce chunks; other file types are fetched but yield none. Per file, all `import` declarations are merged into a single chunk, and each top-level function, class, exported declaration and initialized variable becomes its own chunk. Bare expression statements such as `app.use(...)` or `router.post(...)` are not chunked, and so are not retrievable. Each chunk carries `content`, `filePath`, `startLine`, `endLine`, `type` (`function | class | import | type | other`) and `extension`.
+3. **Embed** (`embeding.service.ts`) — `gemini-embedding-001` at `outputDimensionality: 768`, in sequential batches of 10. A batch that throws or returns a mismatched count is logged and skipped; indexing continues without it.
+4. **Store** (`storage.service.ts`) — a single multi-row `INSERT` into the `chunk` table. If any row already exists for that `repoUrl`, the insert is skipped entirely, so re-indexing an already-indexed repository is a no-op rather than a refresh.
 
-```
-GitHub Repo URL
-      ↓
-  Fetch all files via GitHub API
-      ↓
-  Parse each file into semantic chunks (functions, classes, imports)
-      ↓
-  Generate embeddings for each chunk
-      ↓
-  Store in vector database (pgvector)
-      ↓
-  Ask a question in the chat UI
-      ↓
-  Similarity search retrieves top matching chunks
-      ↓
-  LLM generates a grounded answer, streamed token-by-token
-      ↓
-  Answer + source file citations, live in the browser
-```
+### Query — `POST /api/v1/codebrain/ask`
 
----
+Body: `{ "repoUrl": "...", "question": "..." }`
 
-## What's Built
+1. **Retrieve** (`retrieval.service.ts`) — the question is embedded with the same model and dimensionality, then matched using pgvector's `<=>` operator: `ORDER BY embedding <=> $2 LIMIT 5`, filtered only by `repoUrl`. Returns `content`, `filePath`, `startLine` and `endLine` for the five nearest chunks; `type` and `extension` are stored but not selected.
+2. **Generate** (`llm.service.ts`) — one prompt is assembled from a fixed instruction block, the retrieved chunks (each prefixed with its file path and line range) and the question, then sent to `gemini-2.5-flash` via `generateContentStream`. Each token is written to the response as an SSE `data:` frame.
+3. **Render** (`client/src/api/askQuestion.api.ts`) — the client reads the stream with `fetch` and a `ReadableStream` reader, splitting on `\n\n`. `EventSource` is not used, because the request needs a POST body. Output is rendered as Markdown.
 
-### GitHub Ingestion
+Every route is wrapped in `asyncHandler`, which forwards rejected promises to `errorMiddleware`. That middleware maps `ApiError` to its own status code and anything else to a generic 500. All responses use the `ApiResponse` envelope: `{ statusCode, message, data, success }`.
 
-Fetches every relevant file from any public GitHub repository.
+## Evaluation
 
-- Recursive tree fetch — one API call gets the entire file structure
-- Smart filtering — skips binaries, images, lock files, build artifacts, and generated folders
-- Batched parallel fetching — 10 files at a time with rate limit awareness
-- Handles large repos gracefully with truncation detection
+I built a golden set of 14 questions to test whether retrieval and generation were
+working as expected, ran every question myself, and scored each result by hand
+against three metrics: context recall, context precision, and faithfulness.
 
-### Semantic Chunking
+I did this manually rather than reaching for an eval framework because I wanted to
+understand where each number comes from. If a tool had reported a score before I'd
+read my own failures, I'd have had no way to judge whether the tool was right.
 
-Splits code into meaningful units — not arbitrary line breaks.
+### Method
 
-- AST-based parsing using `@typescript-eslint/parser`
-- Extracts functions, classes, arrow functions, default exports as individual chunks
-- Groups all imports into a single context chunk per file
-- Preserves file path, line numbers, and chunk type for precise retrieval
-- Supports `.ts`, `.tsx`, `.js`, `.jsx`
+Every question is scoped to server-side code. CodeBrain indexes both client and
+server, but mixing them would have made the ground truth ambiguous — I wanted to
+test one part properly rather than get a blurred result across the whole system.
 
-### Embeddings
+The expected line numbers come from the chunker's actual output, not from reading
+files by hand. This matters: retrieval returns file path plus start and end line,
+so a chunk counts as a hit only if file, start line and end line match exactly.
+That rule is only valid because the answer key was built from real chunk boundaries.
 
-Converts each code chunk into a vector representation.
+Eleven questions are positive cases with a known answer in the code. Three are
+negative cases, asking about features Critch does not have, and are scored on
+faithfulness alone.
 
-- `gemini-embedding-001` via Google AI SDK
-- 768-dimensional vectors using Matryoshka Representation Learning
-- Batched with `Promise.all`, failed chunks logged and skipped
-- Chunks exceeding the model's context window are skipped and logged
+Counting method: recall and precision are pooled across questions — total chunks
+found divided by total expected, and total relevant divided by total retrieved —
+rather than averaging per-question rates. Negatives are excluded from both.
 
-### Vector Storage
+### Results — baseline, before any fix
 
-Persists chunks and embeddings for retrieval.
+| Metric            | Result                                 |
+| ----------------- | -------------------------------------- |
+| Context recall    | 0 of 20 expected chunks retrieved (0%) |
+| Context precision | 0 of 55 retrieved chunks relevant (0%) |
+| Faithfulness      | 13 of 14 passed (93%)                  |
 
-- Supabase pgvector — runs inside the existing PostgreSQL instance, no separate vector infra
-- HNSW index (`vector_cosine_ops`) for fast approximate nearest-neighbor search
-- Repo-level deduplication before inserting
+In practice this means retrieval is broken, not generation. CodeBrain is not finding
+the chunks that actually answer the question — but the model does not invent an
+answer to cover the gap. It answers from what it was given and tells the user plainly
+that the code they asked about isn't in the retrieved context. In several cases it
+named the exact thing that was missing: that the server handler for the avatar upload
+route was absent from the context it received, for example.
 
-### Retrieval
+The one faithfulness failure is examined below.
 
-Finds the most relevant code for a given question.
+### Finding one: references outrank implementations
 
-- Embeds the incoming question with the same embedding model
-- Cosine similarity search (`<=>` operator) against stored vectors
-- Returns the top 5 matching chunks with file path and line numbers
+In five of the eleven positive questions, retrieval returned the place where
+something is _named_ rather than the place where it is _implemented_. The import
+block of `user.route.ts` outranked `refreshTokenController`. The import lines of
+`cloudinary.ts` outranked `uploadOnCloudinary`. A `projectEditSchema.safeParse()`
+call site outranked the schema definition. A client function that merely passes a
+cursor parameter outranked the server controller that implements pagination. The
+imports of `JwtPayload` outranked its three-line definition.
 
-### Answer Generation
+The mechanism is density, not frequency. Retrieval scores a chunk's average meaning,
+not how many times a word appears in it. An import block is almost entirely
+identifier names, so its average sits close to the question. A large multi-purpose
+function mentions the same identifier several times, but averages it in with
+everything else it does, so it ends up further away.
 
-Generates a grounded, streamed response.
+The same mechanism explains the opposite-looking failure. A controller of 80 to 95
+lines handling fetching, formatting, pagination and response in one chunk has its
+average split across all of them, so it is not strongly close to any single question.
+Dilution and reference-beating-implementation are one mechanism seen from two sides.
 
-- Google `gemini-2.5-flash` via the `@google/genai` SDK
-- Prompt built from instruction + retrieved chunks + user question
-- Streamed token-by-token over Server-Sent Events (SSE)
+This finding corrected an earlier theory of mine. I originally predicted that small,
+single-purpose chunks would retrieve cleanly because they are sharp. The `JwtPayload`
+question falsified that directly: the three-line definition was as small and focused
+as a chunk can be, and it still lost to the chunks that merely import it. Small is
+not sufficient. Density relative to the query is what decides.
 
-### API
+_Inference, not measured:_ identifier tokenization may worsen this. If
+`refreshToken` is split into `refresh` and `Token`, then unrelated token-adjacent
+code earns partial credit toward the query, spreading the signal further. I have not
+verified how the embedding model tokenizes identifiers, so this is offered as a
+likely contributing factor rather than a result.
 
-- `POST /api/v1/codebrain/index` — indexes a repository (fetch → chunk → embed → store)
-- `POST /api/v1/codebrain/ask` — retrieves relevant chunks and streams an answer via SSE
+### Finding two: retrieval degrades as questions become more abstract
 
-### Chat UI
+Questions phrased in vocabulary that exists in the code performed poorly. Questions
+phrased in concepts that appear nowhere in the code performed worst of all. Asking
+how data integrity is maintained, or how the reputation score weights its inputs,
+produced the most degenerate results in the set — boilerplate, import lines and type
+fragments, with no logic chunk retrieved at all.
 
-React frontend for the full flow, live at [codebrain-gamma.vercel.app](https://codebrain-gamma.vercel.app).
+The reason is that a chunk with little distinctive content sits in a neutral region
+of the embedding space: weakly close to everything, strongly close to nothing. When
+a question has a lexical anchor in the code, real matches outrank it. When it has
+none, nothing scores strongly and the generic chunks win by default.
 
-- Repo URL input with indexing trigger
-- Question input with `EventSource` consuming the SSE stream
-- Streamed answer rendering token-by-token with file citations
+Single-line chunks carrying no meaningful content appeared in the top five for most
+questions in the set.
 
----
+Retrieval never fails loudly. It always returns five chunks. It simply returns its
+most generic ones.
 
-## What's Coming
+### The one faithfulness failure was not a hallucination
 
-- [ ] Support for more languages (Python, Go, Rust)
-- [ ] Vector-based conversation memory (currently sliding window)
-- [ ] Basic test coverage (Vitest)
+Asked how users are notified about account activity, the model described the
+flash-message and error-banner system in the dashboard. Every fact it cited was real:
+real file, real lines, real behaviour. It invented nothing. But Critch has no
+notification system, and the model presented unrelated code as a complete answer,
+with no indication that the feature might not exist.
 
----
+This is confident misattribution rather than fabrication, and it is the more dangerous
+of the two. Nothing in the answer looks suspicious on a skim, so a developer reading
+it has no reason to verify.
 
-## Tech Stack
+The two other negative questions passed, and the contrast explains why. Asked whether
+users can search for other users, the model found a search input whose placeholder
+literally reads "Search projects…" — a hard textual signal contradicting the premise,
+leaving no room to drift. "Account activity" had no such contradiction. Retrieval
+returned code about things users do — clicking, submitting — which is loosely
+compatible with the question, so the model filled the gap.
 
-| Layer      | Technology                                                       |
-| ---------- | ---------------------------------------------------------------- |
-| Backend    | Node.js, Express, TypeScript                                     |
-| Frontend   | React, Vite, TypeScript                                          |
-| Parsing    | `@typescript-eslint/parser`                                      |
-| Embeddings | `gemini-embedding-001` via Google AI SDK                         |
-| Vector DB  | Supabase pgvector (HNSW index, cosine similarity)                |
-| LLM        | Google Gemini `gemini-2.5-flash`                                 |
-| Streaming  | Server-Sent Events (SSE)                                         |
-| DB access  | Raw `pg` client for vector ops (Prisma doesn't support pgvector) |
+Faithfulness holds on a retrieval miss when the retrieved context contains an explicit
+signal contradicting the question. Without one, the model can drift into confident
+misattribution.
 
-Full reasoning and tradeoffs for each decision are documented in the project's Architecture Decision Records (ADR-001 through ADR-004).
+### Next step
 
----
+Three changes, in increasing order of effort.
 
-## Getting Started
+**1. Exclude import chunks from retrieval.** The chunker merges every import
+declaration in a file into a single chunk whose content is nothing but identifier
+names, giving it the highest possible density of query vocabulary. This accounts for
+most of finding one. An import list is never the answer to how something works.
+`type` is already stored on every chunk but is not selected during retrieval, so this
+is a filter rather than a rewrite.
 
-> Try it live at [codebrain-gamma.vercel.app](https://codebrain-gamma.vercel.app), or run it locally:
+**2. Drop near-empty chunks at indexing time.** `export default router;` becomes its
+own chunk because it is an export declaration, despite carrying almost no information.
+A minimum content threshold removes the class.
+
+**3. Split large functions.** Controllers of 80 to 95 lines are chunked whole, so one
+embedding averages several responsibilities. Splitting below the top-level AST
+boundary should sharpen what retrieval scores against.
+
+I expect partial improvement, not a fix: recall of roughly five or six out of twenty.
+The first two changes remove decoys; they do not make the correct chunks easier to
+find. Closing that gap likely needs a lexical signal alongside vector similarity, or
+filtering by file path so that layer is encoded outside the embedding — Critch defines
+near-identical validation schemas on client and server, and nothing in a natural
+question distinguishes them.
+
+The same 14 questions will be re-run after these changes, scored by the identical
+counting method, with both sets of numbers published here.
+
+## Tech stack
+
+| Layer        | Technology                                        |
+| ------------ | ------------------------------------------------- |
+| Server       | Node.js, Express 5, TypeScript                    |
+| Client       | React 19, Vite, Tailwind CSS                      |
+| Parsing      | `@typescript-eslint/parser`                       |
+| Embeddings   | `gemini-embedding-001`, 768 dimensions            |
+| LLM          | `gemini-2.5-flash` via `@google/genai`            |
+| Vector store | PostgreSQL + pgvector, HNSW (`vector_cosine_ops`) |
+| DB access    | `pg`, raw SQL, no ORM                             |
+| Streaming    | Server-Sent Events                                |
+| Tests        | Vitest                                            |
+
+## Local setup
+
+Requires Node.js and a PostgreSQL database with the `pgvector` extension available.
 
 ```bash
 git clone https://github.com/kasamthapa/codebrain
 cd codebrain
+```
 
-# Server
-cd server && npm install
-cp .env.example .env  # add your GITHUB_TOKEN, Supabase, and Gemini keys
+No migrations are checked in, so create the schema by hand before starting the server:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE chunk (
+  id          bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  "repoUrl"   varchar,
+  content     varchar,
+  "filePath"  varchar,
+  "startLine" smallint,
+  "endLine"   smallint,
+  type        text,
+  extension   text,
+  embedding   vector(768)
+);
+
+CREATE INDEX chunk_embedding_idx ON chunk USING hnsw (embedding vector_cosine_ops);
+```
+
+Server:
+
+```bash
+cd server && npm install && cp .env.example .env
 npm run dev
+```
 
-# Client
+Client, in a second terminal:
+
+```bash
 cd client && npm install
 npm run dev
 ```
 
-You'll need the following environment variables (see `.env.example`):
+The server refuses to start if any required variable is missing. With both running, index a repository once, then ask questions against the same `repoUrl`:
 
-| Variable         | Description                                       |
-| ---------------- | ------------------------------------------------- |
-| `PORT`           | Server port                                       |
-| `GEMINI_API_KEY` | Google AI Studio API key (embeddings + LLM)       |
-| `DATABASE_URL`   | Supabase Postgres connection string (pgvector)    |
-| `GITHUB_TOKEN`   | GitHub personal access token (for repo ingestion) |
-| `CORS_ORIGIN`    | Allowed origin for the frontend (CORS)            |
+```bash
+curl -X POST http://localhost:8080/api/v1/codebrain/index -H "Content-Type: application/json" -d '{"repoUrl":"https://github.com/owner/repo"}'
+```
 
----
+Other scripts: `npm test` (Vitest), `npm run build` (`tsc -b`), `npm run lint`, `npm run format`.
 
-## Building in Public
+## Environment variables
 
-This project is being built entirely in the open. Every week of progress gets documented. Follow along if you're interested in how RAG systems, AST parsing, and vector search come together in a real product.
+Server, in `server/.env`:
 
----
+| Variable         | Required | Description                                                                                         |
+| ---------------- | -------- | --------------------------------------------------------------------------------------------------- |
+| `PORT`           | yes      | Port the API listens on                                                                             |
+| `GEMINI_API_KEY` | yes      | Google AI Studio key, used for both embeddings and answer generation                                |
+| `DATABASE_URL`   | yes      | PostgreSQL connection string; the database needs `pgvector`                                         |
+| `GITHUB_TOKEN`   | yes      | GitHub token used to read repository trees and blobs                                                |
+| `CORS_ORIGIN`    | yes      | Allowed browser origin                                                                              |
+| `EVAL_LOG`       | no       | When set to `"true"`, logs the file path and line range of each retrieved chunk for evaluation runs |
 
-<div align="center">
-  <p>Built by <a href="https://github.com/kasamthapa">Kasam Thapa Magar</a></p>
-</div>
+Client, in `client/.env`:
+
+| Variable            | Required | Description                                                                         |
+| ------------------- | -------- | ----------------------------------------------------------------------------------- |
+| `VITE_API_BASE_URL` | yes      | API base, including the route prefix, e.g. `http://localhost:8080/api/v1/codebrain` |
+
+## Limitations
+
+- Only `.ts`, `.tsx`, `.js` and `.jsx` files produce chunks. Other languages are fetched and then discarded at the chunking step.
+- Code that is not a top-level declaration — route registrations, `app.use(...)` calls, and other bare expression statements — is never chunked, so it cannot be retrieved.
+- Re-indexing a repository that is already in the database does nothing; there is no refresh or update path.
+- Retrieval always returns 5 chunks and filters only by repository URL, so every file in the repository competes in the same pool.
+- There is no conversation memory. Each question is answered independently.
+- The Evaluation section measures what this costs in practice.
+
+Built by [Kasam Thapa Magar](https://github.com/kasamthapa)
