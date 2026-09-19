@@ -1,0 +1,203 @@
+[
+  {
+    "id": "q1",
+    "question": "How is user password securely stored on server?",
+    "expected": [
+      {
+        "file": "server/src/controllers/user.controller.ts",
+        "functionName": "userSignupController",
+        "startLine": 17,
+        "endLine": 32
+      }
+    ]
+  },
+  {
+    "id": "q2",
+    "question": "How does it handle refreshToken and how is it used on server side?",
+    "expected": [
+      {
+        "file": "server/src/utils/tokenGen.ts",
+        "functionName": "generateRefreshToken",
+        "startLine": 8,
+        "endLine": 10
+      },
+      {
+        "file": "server/src/controllers/user.controller.ts",
+        "functionName": "userSignInController",
+        "startLine": 34,
+        "endLine": 91
+      },
+      {
+        "file": "server/src/controllers/user.controller.ts",
+        "functionName": "refreshTokenController",
+        "startLine": 93,
+        "endLine": 124
+      },
+      {
+        "file": "server/src/controllers/user.controller.ts",
+        "functionName": "logoutController",
+        "startLine": 126,
+        "endLine": 144
+      }
+    ]
+  },
+  {
+    "id": "q3",
+    "question": "How is file upload handled here end to end on server side?",
+    "expected": [
+      {
+        "file": "server/src/middleware/multerMiddleware.ts",
+        "functionName": "storage",
+        "startLine": 3,
+        "endLine": 10
+      },
+      {
+        "file": "server/src/middleware/multerMiddleware.ts",
+        "functionName": "upload",
+        "startLine": 11,
+        "endLine": 11
+      },
+      {
+        "file": "server/src/utils/cloudinary.ts",
+        "functionName": "uploadOnCloudinary",
+        "startLine": 5,
+        "endLine": 20
+      },
+      {
+        "file": "server/src/controllers/user.controller.ts",
+        "functionName": "avatarUploadController",
+        "startLine": 197,
+        "endLine": 227
+      },
+      {
+        "file": "server/src/controllers/project.controller.ts",
+        "functionName": "createProjectController",
+        "startLine": 14,
+        "endLine": 84
+      }
+    ]
+  },
+  {
+    "id": "q4",
+    "question": "how projects are formated before sending response when getProject controller is called ?",
+    "expected": [
+      {
+        "file": "server/src/controllers/project.controller.ts",
+        "functionName": "getProjectController",
+        "startLine": 86,
+        "endLine": 180
+      }
+    ]
+  },
+  {
+    "id": "q5",
+    "question": "how projects with tags are handled during creation and searching?",
+    "expected": [
+      {
+        "file": "server/src/controllers/project.controller.ts",
+        "functionName": "createProjectController",
+        "startLine": 14,
+        "endLine": 84
+      },
+      {
+        "file": "server/src/controllers/project.controller.ts",
+        "functionName": "getProjectController",
+        "startLine": 86,
+        "endLine": 180
+      }
+    ]
+  },
+  {
+    "id": "q6",
+    "question": "how are tags validated before saving?",
+    "expected": [
+      {
+        "file": "server/src/schemas/project.schema.ts",
+        "functionName": "projectSchema",
+        "startLine": 2,
+        "endLine": 20
+      },
+      {
+        "file": "server/src/schemas/project.schema.ts",
+        "functionName": "projectEditSchema",
+        "startLine": 21,
+        "endLine": 36
+      }
+    ]
+  },
+  {
+    "id": "q7",
+    "question": "what is the work of errorMiddleware and how does it handle all the errors of the server?",
+    "expected": [
+      {
+        "file": "server/src/middleware/error.middleware.ts",
+        "functionName": "errorMiddleware",
+        "startLine": 6,
+        "endLine": 33
+      }
+    ]
+  },
+  {
+    "id": "q8",
+    "question": "how data integrity is ensured during reviewCreation on server side?",
+    "expected": [
+      {
+        "file": "server/src/controllers/project.controller.ts",
+        "functionName": "createReviewController",
+        "startLine": 335,
+        "endLine": 420
+      }
+    ]
+  },
+  {
+    "id": "q9",
+    "question": "what ensures reputation score is equally weighted and how does it handle that?",
+    "expected": [
+      {
+        "file": "server/src/controllers/project.controller.ts",
+        "functionName": "createReviewController",
+        "startLine": 335,
+        "endLine": 420
+      }
+    ]
+  },
+  {
+    "id": "q10",
+    "question": "can you explain how pagination for projects is done ?",
+    "expected": [
+      {
+        "file": "server/src/controllers/project.controller.ts",
+        "functionName": "getProjectController",
+        "startLine": 86,
+        "endLine": 180
+      }
+    ]
+  },
+  {
+    "id": "q11",
+    "question": "where is jwt payload type written?",
+    "expected": [
+      {
+        "file": "server/src/types/jwtPayload.ts",
+        "functionName": "JwtPayload",
+        "startLine": 1,
+        "endLine": 3
+      }
+    ]
+  },
+  {
+    "id": "q12",
+    "question": "how users are notified about their account acitvities?",
+    "expected": []
+  },
+  {
+    "id": "q13",
+    "question": "how can users directly search other users using search feature?",
+    "expected": []
+  },
+  {
+    "id": "q14",
+    "question": "how can users directly message eachother?",
+    "expected": []
+  }
+]
