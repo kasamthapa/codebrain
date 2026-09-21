@@ -140,8 +140,8 @@ of the embedding space: weakly close to everything, strongly close to nothing. W
 a question has a lexical anchor in the code, real matches outrank it. When it has
 none, nothing scores strongly and the generic chunks win by default.
 
-Single-line chunks carrying no meaningful content appeared in the top five for most
-questions in the set.
+Single-line chunks carrying no meaningful content appeared in the top five for at least
+6 of the 14 questions in the set.
 
 Retrieval never fails loudly. It always returns five chunks. It simply returns its
 most generic ones.
