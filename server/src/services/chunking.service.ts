@@ -89,8 +89,10 @@ export const chunkCode = (
         });
       }
     }
-
-    return chunkArray;
+    const filteredChunks = chunkArray.filter(
+      (chunk) => chunk.startLine !== chunk.endLine,
+    );
+    return filteredChunks;
   } catch (e: any) {
     console.warn(`Failed to chunk file ${filePath}:`, e.message);
     return [];
