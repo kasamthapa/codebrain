@@ -17,6 +17,7 @@ export const llmService = async (
         filePath: c.filePath,
         startLine: c.startLine,
         endLine: c.endLine,
+        type: c.type,
       })),
     );
   }

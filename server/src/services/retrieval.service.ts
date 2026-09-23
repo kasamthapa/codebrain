@@ -21,7 +21,7 @@ export const retrieveChunks = async (
     const embeddedQuestion = response.embeddings?.[0].values;
     if (!embeddedQuestion) throw new Error(`Invalid question embeding`);
     const chunks = await db.query(
-      `SELECT content,"filePath","startLine","endLine" FROM chunk WHERE "repoUrl"=$1 ORDER BY embedding <=> $2 LIMIT 5`,
+      `SELECT content,"filePath","startLine","endLine","type" FROM chunk WHERE "repoUrl"=$1 AND "type"!='import' ORDER BY embedding <=> $2 LIMIT 5`,
       [repoUrl, `[${embeddedQuestion.join(",")}]`],
     );
 

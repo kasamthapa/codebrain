@@ -11,4 +11,5 @@ export interface retrievalReturnType {
   filePath: string;
   startLine: number;
   endLine: number;
+  type: string;
 }
