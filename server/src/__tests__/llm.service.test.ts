@@ -27,6 +27,7 @@ describe("llm service", () => {
         filePath: "src/index.ts",
         startLine: 1,
         endLine: 3,
+        type: "function",
       },
     ];
     const mockRes = {
@@ -57,6 +58,7 @@ describe("llm service", () => {
         filePath: "src/index.ts",
         startLine: 1,
         endLine: 3,
+        type: "function",
       },
     ];
     const result = await llmService(
