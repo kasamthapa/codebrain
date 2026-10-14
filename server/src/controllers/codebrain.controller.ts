@@ -3,7 +3,7 @@ import { Request, Response } from "express";
 import { fetchRepoFiles } from "../services/github.service";
 import { chunkCode } from "../services/chunking.service";
 import { embedChunk } from "../services/embeding.service";
-import { Storage } from "../services/storage.service";
+import { isIndexed, Storage } from "../services/storage.service";
 
 import { retrieveChunks } from "../services/retrieval.service";
 import { llmService } from "../services/llm.service";
@@ -13,6 +13,10 @@ const MAX_CHUNKS = 900;
 export const indexController = async (req: Request, res: Response) => {
   const { repoUrl } = req.body;
   if (!repoUrl) throw new ApiError(401, "repoUrl is missing");
+  if (await isIndexed(repoUrl)) {
+    res.json(new ApiResponse(200, "Repo already indexed ", {}));
+    return;
+  }
   const files = await fetchRepoFiles(repoUrl);
   const chunks = files.flatMap((f) =>
     chunkCode(f.content, f.path, f.extension),

@@ -2,13 +2,6 @@ import db from "../lib/db";
 import type { EmbeddedChunk } from "../types/embed.type";
 
 export const Storage = async (data: EmbeddedChunk[], repoUrl: string) => {
-  const isRepoPresent = await db.query(
-    `SELECT "repoUrl" FROM chunk WHERE "repoUrl"=$1`,
-    [repoUrl],
-  );
-  if (isRepoPresent.rows.length > 0) {
-    return;
-  }
   const placeholders: string[] = [];
   const values: (string | number)[] = [];
   data.forEach((chunk, index) => {
@@ -32,3 +25,14 @@ export const Storage = async (data: EmbeddedChunk[], repoUrl: string) => {
     values,
   );
 };
+
+export async function isIndexed(repoUrl: string) {
+  const isRepoPresent = await db.query(
+    `SELECT "repoUrl" FROM chunk WHERE "repoUrl"=$1 LIMIT 1`,
+    [repoUrl],
+  );
+  if (isRepoPresent.rows.length > 0) {
+    return true;
+  }
+  return false;
+}
