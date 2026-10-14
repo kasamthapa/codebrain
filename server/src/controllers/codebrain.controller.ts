@@ -9,6 +9,7 @@ import { retrieveChunks } from "../services/retrieval.service";
 import { llmService } from "../services/llm.service";
 import { ApiResponse } from "../utils/ApiResponse";
 
+const MAX_CHUNKS = 900;
 export const indexController = async (req: Request, res: Response) => {
   const { repoUrl } = req.body;
   if (!repoUrl) throw new ApiError(401, "repoUrl is missing");
@@ -20,6 +21,11 @@ export const indexController = async (req: Request, res: Response) => {
     throw new ApiError(
       422,
       "No supported code files were found in this repository, so there was nothing to index.",
+    );
+  if (chunks.length > MAX_CHUNKS)
+    throw new ApiError(
+      422,
+      "this repo is too big to be indexed,try a smaller one",
     );
   const embededChunks = await embedChunk(chunks);
   await Storage(embededChunks, repoUrl);
