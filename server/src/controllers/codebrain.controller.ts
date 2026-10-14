@@ -16,6 +16,11 @@ export const indexController = async (req: Request, res: Response) => {
   const chunks = files.flatMap((f) =>
     chunkCode(f.content, f.path, f.extension),
   );
+  if (chunks.length === 0)
+    throw new ApiError(
+      422,
+      "No supported code files were found in this repository, so there was nothing to index.",
+    );
   const embededChunks = await embedChunk(chunks);
   await Storage(embededChunks, repoUrl);
   res.json(new ApiResponse(200, "Repo indexed successfully", {}));
