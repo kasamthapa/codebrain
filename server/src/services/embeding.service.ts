@@ -65,7 +65,10 @@ export const embedChunk = async (chunks: Chunk[]): Promise<EmbeddedChunk[]> => {
         );
         if (!foundObject) {
           console.error(e.message);
-          throw e;
+          throw new ApiError(
+            503,
+            "Something went wrong and embedding failed try again in a few minutes.",
+          );
         }
         const violations = foundObject.violations;
         if (violations.some((item: any) => item.quotaId.includes("PerDay")))
@@ -75,13 +78,20 @@ export const embedChunk = async (chunks: Chunk[]): Promise<EmbeddedChunk[]> => {
           );
         console.warn("Failed to embed batch:", i, e);
         retryCounter++;
-        if (retryCounter > 2) throw e;
+        if (retryCounter > 2)
+          throw new ApiError(
+            503,
+            "Something went wrong and embedding failed try again in a few minutes.",
+          );
         const foundRetryInfoObject = details.find((obj: any) =>
           obj["@type"].includes("RetryInfo"),
         );
         if (!foundRetryInfoObject) {
           console.error(e.message);
-          throw e;
+          throw new ApiError(
+            503,
+            "Something went wrong and embedding failed try again in a few minutes.",
+          );
         }
         const retryDelay = parseFloat(foundRetryInfoObject.retryDelay);
         await new Promise((resolve) =>
