@@ -60,7 +60,7 @@ export const fetchRepoFiles = async (
         await new Promise((resolve) => setTimeout(resolve, resetTime));
       }
       const chunk = filteredData.slice(i, i + 10);
-      await Promise.all(
+      const batchFiles = await Promise.all(
         chunk.map(async (item: any) => {
           const sha = item.sha;
 
@@ -93,9 +93,10 @@ export const fetchRepoFiles = async (
             content: rawData,
             extension: parts.length > 1 ? parts.pop() : "",
           };
-          resultArray.push(returnObject);
+          return returnObject;
         }),
       );
+      resultArray.push(...batchFiles);
     }
     return resultArray;
   } catch (e: any) {
