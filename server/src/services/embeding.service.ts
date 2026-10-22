@@ -8,6 +8,31 @@ const ai = new GoogleGenAI({
   apiKey: env.GEMINI_API_KEY,
 });
 
+export function buildBatch(chunks: Chunk[]) {
+  const MAX_BATCH_TOKENS = 12000;
+  const MAX_BATCH_CHUNKS = 90;
+  let currentBatch: Chunk[] = [];
+  const finishedBatch = [];
+  let currentTotal = 0;
+  chunks.forEach((chunk) => {
+    const tokens = chunk.content.length / 4;
+    if (
+      currentTotal + tokens > MAX_BATCH_TOKENS ||
+      currentBatch.length + 1 > MAX_BATCH_CHUNKS
+    ) {
+      finishedBatch.push(currentBatch);
+      currentBatch = [chunk];
+      currentTotal = 0;
+      currentBatch.forEach((ch) => (currentTotal += ch.content.length / 4));
+    } else {
+      currentBatch.push(chunk);
+      currentTotal += tokens;
+    }
+  });
+  if (currentBatch.length > 0) finishedBatch.push(currentBatch);
+  return finishedBatch;
+}
+
 export const embedChunk = async (chunks: Chunk[]): Promise<EmbeddedChunk[]> => {
   const results: EmbeddedChunk[] = [];
 
