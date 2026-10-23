@@ -35,10 +35,22 @@ export function buildBatch(chunks: Chunk[]) {
 
 export const embedChunk = async (chunks: Chunk[]): Promise<EmbeddedChunk[]> => {
   const results: EmbeddedChunk[] = [];
-
-  for (let i = 0; i < chunks.length; i += 10) {
+  const batchArr = buildBatch(chunks);
+  const TOKEN_BUDGET = 14000;
+  let tokenThisMinute = 0;
+  for (let i = 0; i < batchArr.length; i++) {
     let retryCounter = 0;
-    const batch = chunks.slice(i, i + 10);
+    const batch = batchArr[i];
+    let batchTokens = 0;
+    batch.forEach((ch) => (batchTokens += ch.content.length / 4));
+    if (tokenThisMinute + batchTokens > TOKEN_BUDGET) {
+      console.log(
+        `TokenthisMinute:${tokenThisMinute},batchTokens:${batchTokens}`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 60 * 1000));
+      tokenThisMinute = 0;
+    }
+    tokenThisMinute += batchTokens;
     const contents = batch.map((chunk) => chunk.content);
     while (retryCounter <= 2) {
       try {
