@@ -16,6 +16,12 @@ export function buildBatch(chunks: Chunk[]) {
   let currentTotal = 0;
   chunks.forEach((chunk) => {
     const tokens = chunk.content.length / 4;
+    if (tokens > MAX_BATCH_TOKENS) {
+      throw new ApiError(
+        422,
+        "This repo cannot be processed by our system, wait for our future updates to handle bigger repos",
+      );
+    }
     if (
       currentTotal + tokens > MAX_BATCH_TOKENS ||
       currentBatch.length + 1 > MAX_BATCH_CHUNKS
