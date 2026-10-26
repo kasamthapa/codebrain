@@ -14,12 +14,29 @@ Layout:
 
 ## Contents
 
+- [The short version](#the-short-version)
 - [Architecture](#architecture)
 - [Evaluation](#evaluation)
 - [Tech stack](#tech-stack)
 - [Local setup](#local-setup)
 - [Environment variables](#environment-variables)
 - [Limitations](#limitations)
+
+---
+
+## The short version
+
+My first evaluation scored retrieval at **0 of 20**. I spent a while blaming the retrieval. The real problem was earlier in the pipeline: CodeBrain said "indexed successfully" while silently storing only part of the repository. On my test repo it stored 100 of 157 chunks, and the missing ones included the answers.
+
+I rebuilt the embedding step so it plans around Google's rate limits instead of reacting to them, and so it saves either the whole repository or nothing. Together with two smaller retrieval changes, the same 14 questions now score:
+
+| Metric            | Before         | After              |
+| ----------------- | -------------- | ------------------ |
+| Context recall    | 0 of 20 (0%)   | **18 of 20 (90%)** |
+| Context precision | 0 of 55 (0%)   | **18 of 55 (33%)** |
+| Faithfulness      | 13 of 14 (93%) | **13 of 14 (93%)** |
+
+Every number here was counted by hand. The details, including what still fails, are below.
 
 ---
 
@@ -31,16 +48,18 @@ Two pipelines, one per endpoint.
 
 Body: `{ "repoUrl": "https://github.com/owner/repo" }`
 
-1. **Fetch** (`github.service.ts`) — one recursive call to the GitHub Git Trees API for `HEAD`, rejected with 422 if GitHub reports the tree as truncated. Paths are filtered by `shouldIncludeFile`, which drops `node_modules/`, `dist/`, `build/`, `.git/`, `.next/`, `coverage/`, `.cache/`, `vendor/`, lock files, and binary/media extensions. Remaining blobs are fetched 10 at a time and base64-decoded.
-2. **Chunk** (`chunking.service.ts`) — each file is parsed with `@typescript-eslint/parser` and split at top-level AST boundaries. Only `.ts`, `.tsx`, `.js` and `.jsx` produce chunks; other file types are fetched but yield none. Per file, all `import` declarations are merged into a single chunk, and each top-level function, class, exported declaration and initialized variable becomes its own chunk. Bare expression statements such as `app.use(...)` or `router.post(...)` are not chunked, and so are not retrievable. Each chunk carries `content`, `filePath`, `startLine`, `endLine`, `type` (`function | class | import | type | other`) and `extension`.
-3. **Embed** (`embeding.service.ts`) — `gemini-embedding-001` at `outputDimensionality: 768`, in sequential batches of 10. A batch that throws or returns a mismatched count is logged and skipped; indexing continues without it.
-4. **Store** (`storage.service.ts`) — a single multi-row `INSERT` into the `chunk` table. If any row already exists for that `repoUrl`, the insert is skipped entirely, so re-indexing an already-indexed repository is a no-op rather than a refresh.
+Before any work, the controller returns early if the repository is already indexed. It rejects a repository with no supported files (422) or with more than 900 chunks (422). The 900 cap keeps one request inside the free tier's daily embedding quota.
+
+1. **Fetch** (`github.service.ts`) — one recursive call to the GitHub Git Trees API for `HEAD`, rejected with 422 if GitHub reports the tree as truncated. Paths are filtered by `shouldIncludeFile`, which drops `node_modules/`, `dist/`, `build/`, `.git/`, `.next/`, `coverage/`, `.cache/`, `vendor/`, lock files, and binary/media extensions. Remaining blobs are fetched 10 at a time and base64-decoded. Files keep their original order, so two runs on the same repository produce the same chunks in the same order.
+2. **Chunk** (`chunking.service.ts`) — each file is parsed with `@typescript-eslint/parser` and split at top-level AST boundaries. Only `.ts`, `.tsx`, `.js` and `.jsx` produce chunks. Per file, all `import` declarations are merged into a single chunk, and each top-level function, class, exported declaration and initialized variable becomes its own chunk. One-line chunks are dropped. Bare expression statements such as `app.use(...)` or `router.post(...)` are not chunked, and so are not retrievable. Each chunk carries `content`, `filePath`, `startLine`, `endLine`, `type` (`function | class | import | type | other`) and `extension`.
+3. **Embed** (`embeding.service.ts`) — `gemini-embedding-001` at `outputDimensionality: 768`. Chunks are packed into batches by estimated size (about 12,000 tokens or 90 chunks per batch, whichever comes first; tokens estimated as characters ÷ 4). Before each batch is sent, the code checks whether it would push that minute's total over a 14,000-token budget. If it would, it waits a minute first. A per-minute 429 from Google is retried twice with the delay Google asks for. A daily-quota 429, or any error it can't identify, stops the whole run with an honest message. A single chunk too large to ever fit in a batch is rejected with 422 before anything is sent.
+4. **Store** (`storage.service.ts`) — a single multi-row `INSERT` into the `chunk` table, run only after every batch has embedded. If embedding fails anywhere, nothing is stored. A half-indexed repository can't exist.
 
 ### Query — `POST /api/v1/codebrain/ask`
 
 Body: `{ "repoUrl": "...", "question": "..." }`
 
-1. **Retrieve** (`retrieval.service.ts`) — the question is embedded with the same model and dimensionality, then matched using pgvector's `<=>` operator: `ORDER BY embedding <=> $2 LIMIT 5`, filtered only by `repoUrl`. Returns `content`, `filePath`, `startLine` and `endLine` for the five nearest chunks; `type` and `extension` are stored but not selected.
+1. **Retrieve** (`retrieval.service.ts`) — the question is embedded with the same model and dimensionality, then matched using pgvector's `<=>` operator: `ORDER BY embedding <=> $2 LIMIT 5`, filtered by `repoUrl`, excluding import chunks. Returns `content`, `filePath`, `startLine`, `endLine` and `type` for the five nearest chunks.
 2. **Generate** (`llm.service.ts`) — one prompt is assembled from a fixed instruction block, the retrieved chunks (each prefixed with its file path and line range) and the question, then sent to `gemini-2.5-flash` via `generateContentStream`. Each token is written to the response as an SSE `data:` frame.
 3. **Render** (`client/src/api/askQuestion.api.ts`) — the client reads the stream with `fetch` and a `ReadableStream` reader, splitting on `\n\n`. `EventSource` is not used, because the request needs a POST body. Output is rendered as Markdown.
 
@@ -50,153 +69,67 @@ Every route is wrapped in `asyncHandler`, which forwards rejected promises to `e
 
 ## Evaluation
 
-I built a golden set of 14 questions to test whether retrieval and generation were
-working as expected, ran every question myself, and scored each result by hand
-against three metrics: context recall, context precision, and faithfulness.
-
-I did this manually rather than reaching for an eval framework because I wanted to
-understand where each number comes from. If a tool had reported a score before I'd
-read my own failures, I'd have had no way to judge whether the tool was right.
+I built a golden set of 14 questions about [Critch](https://github.com/kasamthapa/critch), one of my own projects. I ran every question and scored each result by hand against three metrics: context recall, context precision, and faithfulness. I did it by hand rather than with an eval framework because I wanted to understand where each number comes from before trusting a tool to produce it.
 
 ### Method
 
-Every question is scoped to server-side code. CodeBrain indexes both client and
-server, but mixing them would have made the ground truth ambiguous — I wanted to
-test one part properly rather than get a blurred result across the whole system.
+- Every question is scoped to server-side code, so the answer key is unambiguous.
+- The expected chunks come from the chunker's real output. A retrieved chunk counts as a hit only if file, start line and end line all match.
+- Eleven questions have a known answer in the code (20 expected chunks in total). Three ask about features Critch doesn't have and are scored on faithfulness only.
+- Recall and precision are pooled: total hits ÷ total expected, and total hits ÷ total retrieved (11 questions × 5 chunks = 55).
 
-The expected line numbers come from the chunker's actual output, not from reading
-files by hand. This matters: retrieval returns file path plus start and end line,
-so a chunk counts as a hit only if file, start line and end line match exactly.
-That rule is only valid because the answer key was built from real chunk boundaries.
+### What the first score was really measuring
 
-Eleven questions are positive cases with a known answer in the code. Three are
-negative cases, asking about features Critch does not have, and are scored on
-faithfulness alone.
+The baseline scored 0 of 20, and I wrote two findings to explain it: import blocks were outranking implementations, and abstract questions pulled in generic chunks. Those patterns were real in the results. But when I checked the database, the repository wasn't fully there. The embedding step sent chunks to Google in batches of 10. When a batch failed on a rate limit, it was logged and skipped, and indexing still reported success. Critch had 157 chunks and only 100 were stored.
 
-Counting method: recall and precision are pooled across questions — total chunks
-found divided by total expected, and total relevant divided by total retrieved —
-rather than averaging per-question rates. Negatives are excluded from both.
+So the baseline mixed two causes: answers missing from the index, and weak retrieval. I can't separate them now. That's why the findings below are about the re-run, not the baseline.
 
-### Results — baseline, before any fix
+### The fix: plan for the limits instead of reacting to them
 
-| Metric            | Result                                 |
-| ----------------- | -------------------------------------- |
-| Context recall    | 0 of 20 expected chunks retrieved (0%) |
-| Context precision | 0 of 55 retrieved chunks relevant (0%) |
-| Faithfulness      | 13 of 14 passed (93%)                  |
+Google's free tier has two per-minute limits on embeddings: 100 requests and 30,000 tokens. It also has a daily limit of 1,000 requests. These were the limits listed in Google's documentation when I measured.
 
-In practice this means retrieval is broken, not generation. CodeBrain is not finding
-the chunks that actually answer the question — but the model does not invent an
-answer to cover the gap. It answers from what it was given and tells the user plainly
-that the code they asked about isn't in the retrieved context. In several cases it
-named the exact thing that was missing: that the server handler for the avatar upload
-route was absent from the context it received, for example.
+My first theory was that one limit explained everything. It didn't. A different test repository only ever hit the request limit. Critch hits both, because some of its chunks are large: one batch of 10 chunks came to about 17,700 estimated tokens. Sent right after the batches before it in the same minute, that pushed past 30,000, and Google refused it with a 429 that carries no detail about which limit was hit.
 
-The one faithfulness failure is examined below.
+Reacting to that error wasn't enough, because the error doesn't say what to wait for. So the embedding step now plans ahead. It packs batches by size instead of by count, keeps a running total of tokens sent this minute, and waits before a batch that would cross the budget. The budget (14,000 estimated tokens per minute) is deliberately below Google's 30,000, because characters ÷ 4 is only an estimate. It stays under the limit even if the real count is double. That margin is an assumption, tested by one successful run, not proven.
 
-### Finding one: references outrank implementations
+Before each real run, I wrote down what I expected to happen and compared it afterwards:
 
-In five of the eleven positive questions, retrieval returned the place where
-something is _named_ rather than the place where it is _implemented_. The import
-block of `user.route.ts` outranked `refreshTokenController`. The import lines of
-`cloudinary.ts` outranked `uploadOnCloudinary`. A `projectEditSchema.safeParse()`
-call site outranked the schema definition. A client function that merely passes a
-cursor parameter outranked the server controller that implements pagination. The
-imports of `JwtPayload` outranked its three-line definition.
+| Test                         | Before                | After      | Prediction held?                               |
+| ---------------------------- | --------------------- | ---------- | ---------------------------------------------- |
+| MERN-Movies-App (117 chunks) | 100 stored, "success" | 117 of 117 | Yes: one per-minute 429, retried, then success |
+| Critch (157 chunks)          | 100 stored, "success" | 157 of 157 | Yes: 4 planned waits, no 429                   |
 
-The mechanism is density, not frequency. Retrieval scores a chunk's average meaning,
-not how many times a word appears in it. An import block is almost entirely
-identifier names, so its average sits close to the question. A large multi-purpose
-function mentions the same identifier several times, but averages it in with
-everything else it does, so it ends up further away.
+I also checked that a failed run really saves nothing: an earlier Critch run that hit the unidentified 429 left 0 rows, not a partial repository.
 
-The same mechanism explains the opposite-looking failure. A controller of 80 to 95
-lines handling fetching, formatting, pagination and response in one chunk has its
-average split across all of them, so it is not strongly close to any single question.
-Dilution and reference-beating-implementation are one mechanism seen from two sides.
+### Re-run results
 
-This finding corrected an earlier theory of mine. I originally predicted that small,
-single-purpose chunks would retrieve cleanly because they are sharp. The `JwtPayload`
-question falsified that directly: the three-line definition was as small and focused
-as a chunk can be, and it still lost to the chunks that merely import it. Small is
-not sufficient. Density relative to the query is what decides.
+Same 14 questions, same counting method. Before scoring, I checked that the answer chunks were actually in the database: 15 of the 16 distinct answer chunks were present. The missing one is a one-line export that the chunker now drops, so it can't be retrieved.
 
-_Inference, not measured:_ identifier tokenization may worsen this. If
-`refreshToken` is split into `refresh` and `Token`, then unrelated token-adjacent
-code earns partial credit toward the query, spreading the signal further. I have not
-verified how the embedding model tokenizes identifiers, so this is offered as a
-likely contributing factor rather than a result.
+| Metric            | Baseline       | Re-run                                   |
+| ----------------- | -------------- | ---------------------------------------- |
+| Context recall    | 0 of 20 (0%)   | 18 of 20 (90%); 18 of 19 reachable (95%) |
+| Context precision | 0 of 55 (0%)   | 18 of 55 (33%)                           |
+| Faithfulness      | 13 of 14 (93%) | 13 of 14 (93%)                           |
 
-### Finding two: retrieval degrades as questions become more abstract
+**Three things changed between the two runs, not one:** the index is complete, one-line chunks are dropped, and retrieval skips import chunks. The jump from 0 to 18 is their combined effect. I didn't test them one at a time, so I won't claim how much each contributed.
 
-Questions phrased in vocabulary that exists in the code performed poorly. Questions
-phrased in concepts that appear nowhere in the code performed worst of all. Asking
-how data integrity is maintained, or how the reputation score weights its inputs,
-produced the most degenerate results in the set — boilerplate, import lines and type
-fragments, with no logic chunk retrieved at all.
+**Precision looks low, but it's close to its ceiling.** Retrieval always returns 5 chunks, and most questions have only one correct answer. With 20 expected chunks across 55 retrieved slots, the best possible precision is 20 of 55 (36%). The re-run got 18.
 
-The reason is that a chunk with little distinctive content sits in a neutral region
-of the embedding space: weakly close to everything, strongly close to nothing. When
-a question has a lexical anchor in the code, real matches outrank it. When it has
-none, nothing scores strongly and the generic chunks win by default.
+**Faithfulness is the same number, but it means something different.** In the baseline, most passes were the model honestly saying "the code you asked about isn't here". In the re-run, the passes explain the actual implementation: the bcrypt hashing flow, the full refresh-token cycle, the cursor pagination, and the "average of averages" fix in the reputation score.
 
-Single-line chunks carrying no meaningful content appeared in the top five for at least
-6 of the 14 questions in the set.
+### What still fails
 
-Retrieval never fails loudly. It always returns five chunks. It simply returns its
-most generic ones.
+**The one faithfulness failure didn't change.** Asked how users are notified about account activity (Critch has no notifications), the model described the dashboard's flash-message and error banners as if they were the notification system. Every fact it cited was real. It invented nothing, but it presented unrelated code as a complete answer. This is confident misattribution, and it's more dangerous than an obvious hallucination because nothing looks wrong on a skim. The other two "feature doesn't exist" questions passed: the model said plainly that it found nothing.
 
-### The one faithfulness failure was not a hallucination
+**Line numbers in citations are unreliable.** I added a column that wasn't in the baseline: are the cited line numbers correct in the real file? Of the 7 answers I checked, 3 were correct and 4 were off. The described behaviour was right every time, but in one answer the model cited lines past the end of the file. In two answers about the same function, it gave different line numbers for the same code. This happens in long and short chunks alike. I scored it separately so the faithfulness rule stayed identical to the baseline.
 
-Asked how users are notified about account activity, the model described the
-flash-message and error-banner system in the dashboard. Every fact it cited was real:
-real file, real lines, real behaviour. It invented nothing. But Critch has no
-notification system, and the model presented unrelated code as a complete answer,
-with no indication that the feature might not exist.
+**Two answer chunks were missed.** One (`uploadOnCloudinary`) was in the index but not retrieved. The model said its implementation wasn't provided rather than guessing at it. The other is the dropped one-line export.
 
-This is confident misattribution rather than fabrication, and it is the more dangerous
-of the two. Nothing in the answer looks suspicious on a skim, so a developer reading
-it has no reason to verify.
+### Next steps
 
-The two other negative questions passed, and the contrast explains why. Asked whether
-users can search for other users, the model found a search input whose placeholder
-literally reads "Search projects…" — a hard textual signal contradicting the premise,
-leaving no room to drift. "Account activity" had no such contradiction. Retrieval
-returned code about things users do — clicking, submitting — which is loosely
-compatible with the question, so the model filled the gap.
-
-Faithfulness holds on a retrieval miss when the retrieved context contains an explicit
-signal contradicting the question. Without one, the model can drift into confident
-misattribution.
-
-### Next step
-
-Three changes, in increasing order of effort.
-
-**1. Exclude import chunks from retrieval.** The chunker merges every import
-declaration in a file into a single chunk whose content is nothing but identifier
-names, giving it the highest possible density of query vocabulary. This accounts for
-most of finding one. An import list is never the answer to how something works.
-`type` is already stored on every chunk but is not selected during retrieval, so this
-is a filter rather than a rewrite.
-
-**2. Drop near-empty chunks at indexing time.** `export default router;` becomes its
-own chunk because it is an export declaration, despite carrying almost no information.
-A minimum content threshold removes the class.
-
-**3. Split large functions.** Controllers of 80 to 95 lines are chunked whole, so one
-embedding averages several responsibilities. Splitting below the top-level AST
-boundary should sharpen what retrieval scores against.
-
-I expect partial improvement, not a fix: recall of roughly five or six out of twenty.
-The first two changes remove decoys; they do not make the correct chunks easier to
-find. Closing that gap likely needs a lexical signal alongside vector similarity, or
-filtering by file path so that layer is encoded outside the embedding — Critch defines
-near-identical validation schemas on client and server, and nothing in a natural
-question distinguishes them.
-
-The same 14 questions will be re-run after these changes, scored by the identical
-counting method, with both sets of numbers published here.
+1. **Number every line in the prompt**, so the model copies line numbers instead of counting them.
+2. **Handle "this feature doesn't exist" explicitly** in the instructions, targeting the one remaining faithfulness failure.
+3. **Fix the chunker gaps:** keep meaningful one-liners, and chunk top-level calls like `router.post(...)`, which are currently never indexed.
 
 ---
 
@@ -266,6 +199,8 @@ The server refuses to start if any required variable is missing. With both runni
 curl -X POST http://localhost:8080/api/v1/codebrain/index -H "Content-Type: application/json" -d '{"repoUrl":"https://github.com/owner/repo"}'
 ```
 
+Indexing a repository of a few hundred chunks takes several minutes on the free tier, because of the planned waits.
+
 Other scripts: `npm test` (Vitest), `npm run build` (`tsc -b`), `npm run lint`, `npm run format`.
 
 ---
@@ -293,12 +228,16 @@ Client, in `client/.env`:
 
 ## Limitations
 
-- Only `.ts`, `.tsx`, `.js` and `.jsx` files produce chunks. Other languages are fetched and then discarded at the chunking step.
-- Code that is not a top-level declaration — route registrations, `app.use(...)` calls, and other bare expression statements — is never chunked, so it cannot be retrieved.
-- Re-indexing a repository that is already in the database does nothing; there is no refresh or update path.
-- Retrieval always returns 5 chunks and filters only by repository URL, so every file in the repository competes in the same pool.
+- Only `.ts`, `.tsx`, `.js` and `.jsx` files produce chunks.
+- Top-level calls such as `router.post(...)` and `app.use(...)` are never chunked, and one-line statements are dropped, so neither can be retrieved.
+- Repositories over 900 chunks are refused, and so is any repository containing a single chunk too large to embed.
+- The free tier's daily embedding quota is shared by every user of one API key. One large repository can use it up for everyone until it resets.
+- Token counts are estimated (characters ÷ 4), not measured, so the per-minute budget is a safety margin rather than an exact limit.
+- Indexing is slow by design. It waits rather than risk a refused batch.
+- Re-indexing an already indexed repository does nothing; there is no refresh path.
+- Retrieval always returns 5 chunks, filtered only by repository, so every file competes in the same pool.
+- Cited line numbers can be wrong even when the explanation is right (see Evaluation).
 - There is no conversation memory. Each question is answered independently.
-- The Evaluation section measures what this costs in practice.
 
 ---
 
